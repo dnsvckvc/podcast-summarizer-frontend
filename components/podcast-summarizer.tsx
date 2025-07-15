@@ -1,14 +1,20 @@
 "use client";
 
 import type React from "react";
+import type { Summary } from "@/utils/models";
+
+import Image from "next/image";
 
 import { useState, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { UrlValidator } from "./url-validator";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTaskStatus } from "@/hooks/use-task-status";
+import { TaskProgress } from "@/components/task-progress";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,37 +27,22 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import {
+  User,
   Copy,
-  Share2,
+  Clock,
   Youtube,
   Podcast,
   Loader2,
   Sparkles,
-  Download,
-  ArrowRight,
-  AlertCircle,
-  CheckCircle2,
   Calendar,
-  Clock,
-  User,
-  ExternalLink,
   Bookmark,
   BarChart3,
   RefreshCw,
+  ArrowRight,
+  AlertCircle,
+  CheckCircle2,
+  ExternalLink,
 } from "lucide-react";
-import Image from "next/image";
-
-type PodcastSource = "youtube" | "other";
-type SummaryStatus = "idle" | "loading" | "success" | "error" | "validating";
-
-interface Summary {
-  title: string;
-  content: string;
-  thumbnail?: string;
-  channel?: string;
-  duration_string?: string;
-  release_date?: string;
-}
 
 const fadeIn = {
   hidden: { opacity: 0, y: 10 },
@@ -96,20 +87,34 @@ const cardVariants = {
   },
 };
 
+type PodcastSource = "youtube" | "rss";
+type SummaryStatus = "idle" | "loading" | "success" | "error";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 export function PodcastSummarizer() {
+  const {
+    taskInfo,
+    isLoading,
+    error: taskError,
+    startPolling,
+    stopPolling,
+  } = useTaskStatus(API_URL);
+
+  const [source, setSource] = useState<PodcastSource>("youtube");
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [rssFeedUrl, setRssFeedUrl] = useState("");
   const [episodeName, setEpisodeName] = useState("");
+  const [detailLevel, setDetailLevel] = useState([0.5]);
+  const [status, setStatus] = useState<SummaryStatus>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [isYoutubeValid, setIsYoutubeValid] = useState(false);
   const [isRssValid, setIsRssValid] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [detailLevel, setDetailLevel] = useState([0.5]);
-  const [error, setError] = useState<string | null>(null);
-  const [isYoutubeValid, setIsYoutubeValid] = useState(false);
-  const [status, setStatus] = useState<SummaryStatus>("idle");
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [source, setSource] = useState<PodcastSource>("youtube");
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+  const [youtubeValidationData, setYoutubeValidationData] = useState<any>(null);
+  const [rssValidationData, setRssValidationData] = useState<any>(null);
 
   useEffect(() => {
     if (copySuccess) {
@@ -120,17 +125,37 @@ export function PodcastSummarizer() {
     }
   }, [copySuccess]);
 
+  useEffect(() => {
+    if (taskInfo?.status === "completed" && taskInfo.result) {
+      setSummary({
+        title: taskInfo.result.title,
+        content: taskInfo.result.summary,
+        thumbnail: taskInfo.result.thumbnail,
+        channel: taskInfo.result.channel,
+        duration_string: taskInfo.result.duration_string,
+        release_date: taskInfo.result.release_date,
+      });
+      setStatus("success");
+      setCurrentTaskId(null);
+    } else if (taskInfo?.status === "failed") {
+      setError(taskInfo.error || "Task failed");
+      setStatus("error");
+      setCurrentTaskId(null);
+    }
+  }, [taskInfo]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("loading");
     setError(null);
+    setSummary(null);
 
     try {
       const payload = {
         source_url: source === "youtube" ? youtubeUrl : rssFeedUrl,
         episode_name: source === "youtube" ? null : episodeName,
         detail_level: detailLevel[0],
-        platform: source === "youtube" ? "youtube" : "rss",
+        platform: source,
       };
 
       const response = await fetch(`${API_URL}/api/summarize`, {
@@ -144,19 +169,14 @@ export function PodcastSummarizer() {
       const data = await response.json();
 
       if (data.success) {
-        setSummary({
-          title: data.title || "Podcast Summary",
-          content: data.summary || "No summary available.",
-          thumbnail: data.thumbnail,
-          channel: data.channel,
-          duration_string: data.duration_string,
-          release_date: data.release_date,
-        });
-        setStatus("success");
+        setCurrentTaskId(data.task_id);
+        startPolling(data.task_id);
+        setStatus("idle");
       } else {
-        setError(
-          data.error || "Failed to process the podcast. Please try again."
-        );
+        const errorMessage = Array.isArray(data.errors)
+          ? data.errors.join(", ")
+          : data.error || "Failed to start processing";
+        setError(errorMessage);
         setStatus("error");
       }
     } catch (err) {
@@ -164,52 +184,6 @@ export function PodcastSummarizer() {
       setError(
         "Failed to connect to the summarization service. Please check your connection and try again."
       );
-      setStatus("error");
-    }
-  };
-
-  const validateRssFeed = async () => {
-    if (!rssFeedUrl) return;
-
-    setStatus("validating");
-    setError(null);
-
-    try {
-      // In a real app, this would validate the RSS feed
-      // For now, we'll just simulate validation
-      await new Promise((resolve) => setTimeout(resolve, 1500)); // Simulate validation
-      setIsRssValid(true);
-      setStatus("idle");
-    } catch (err) {
-      setError("Invalid RSS feed URL. Please check and try again.");
-      setIsRssValid(false);
-      setStatus("error");
-    }
-  };
-
-  const validateYoutubeUrl = async () => {
-    if (!youtubeUrl) return;
-
-    setStatus("validating");
-    setError(null);
-
-    try {
-      // Check if it's a valid YouTube URL
-      const youtubeRegex =
-        /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+$/;
-
-      if (!youtubeRegex.test(youtubeUrl)) {
-        throw new Error("Invalid YouTube URL");
-      }
-
-      // In a real app, this would validate the YouTube URL exists
-      await new Promise((resolve) => setTimeout(resolve, 1500)); // Simulate validation
-
-      setIsYoutubeValid(true);
-      setStatus("idle");
-    } catch (err) {
-      setError("Invalid YouTube URL. Please check and try again.");
-      setIsYoutubeValid(false);
       setStatus("error");
     }
   };
@@ -222,8 +196,12 @@ export function PodcastSummarizer() {
     setStatus("idle");
     setError(null);
     setSummary(null);
-    setIsRssValid(false);
     setIsYoutubeValid(false);
+    setIsRssValid(false);
+    setCurrentTaskId(null);
+    setYoutubeValidationData(null);
+    setRssValidationData(null);
+    stopPolling();
   };
 
   const copyToClipboard = () => {
@@ -232,6 +210,45 @@ export function PodcastSummarizer() {
       setCopySuccess(true);
     }
   };
+
+  const handleYoutubeValidation = (isValid: boolean, data?: any) => {
+    setIsYoutubeValid(isValid);
+    setYoutubeValidationData(data);
+  };
+
+  const handleRssValidation = (isValid: boolean, data?: any) => {
+    setIsRssValid(isValid);
+    setRssValidationData(data);
+  };
+
+  const canSubmit = () => {
+    if (status === "loading" || isLoading) return false;
+
+    if (source === "youtube") {
+      return isYoutubeValid && youtubeUrl.trim();
+    } else {
+      return isRssValid && rssFeedUrl.trim() && episodeName.trim();
+    }
+  };
+
+  if (currentTaskId && taskInfo) {
+    return (
+      <div className="space-y-8">
+        <TaskProgress taskInfo={taskInfo} />
+
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            onClick={resetForm}
+            className="flex items-center gap-2 bg-transparent"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Start New Summary
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -270,6 +287,7 @@ export function PodcastSummarizer() {
                   </motion.div>
                 </div>
               </CardHeader>
+
               <CardContent className="pt-6">
                 <form onSubmit={handleSubmit}>
                   <Tabs
@@ -277,7 +295,7 @@ export function PodcastSummarizer() {
                     className="w-full"
                     onValueChange={(value) => {
                       setSource(value as PodcastSource);
-                      resetForm();
+                      setError(null);
                     }}
                   >
                     <TabsList className="flex w-full mb-8 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
@@ -294,7 +312,7 @@ export function PodcastSummarizer() {
                         <span>YouTube</span>
                       </TabsTrigger>
                       <TabsTrigger
-                        value="other"
+                        value="rss"
                         className="flex-1 flex items-center justify-center gap-2 rounded-md py-3 
                         data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 
                         data-[state=active]:shadow-sm data-[state=active]:border-b-2 
@@ -303,214 +321,74 @@ export function PodcastSummarizer() {
                         transition-all duration-200"
                       >
                         <Podcast className="h-4 w-4" />
-                        <span>Other Podcasts</span>
+                        <span>RSS Feeds</span>
                       </TabsTrigger>
                     </TabsList>
+
                     <TabsContent value="youtube" className="space-y-6 w-full">
-                      {!isYoutubeValid ? (
+                      <UrlValidator
+                        platform="youtube"
+                        value={youtubeUrl}
+                        onChange={setYoutubeUrl}
+                        onValidationChange={handleYoutubeValidation}
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        label="YouTube Video URL"
+                        apiUrl={API_URL}
+                      />
+
+                      {isYoutubeValid && (
                         <motion.div
-                          className="space-y-4"
+                          className="mt-6 space-y-4"
                           initial="hidden"
                           animate="visible"
                           variants={fadeIn}
                         >
-                          <div className="space-y-2">
-                            <Label
-                              htmlFor="youtube-url"
-                              className="text-sm font-medium text-slate-700 dark:text-slate-300"
-                            >
-                              YouTube Video URL
+                          <div className="flex justify-between items-center">
+                            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                              Summary Detail Level
                             </Label>
-                            <div className="flex gap-2 w-full">
-                              <motion.div
-                                className="flex-1"
-                                whileFocus={{ scale: 1.01 }}
-                              >
-                                <Input
-                                  id="youtube-url"
-                                  placeholder="https://www.youtube.com/watch?v=..."
-                                  value={youtubeUrl}
-                                  onChange={(e) =>
-                                    setYoutubeUrl(e.target.value)
-                                  }
-                                  required
-                                  className="border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-corporate-500/20 dark:focus:ring-corporate-500/20 transition-all w-full"
-                                />
-                              </motion.div>
-                              <motion.div
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                className="flex-shrink-0"
-                              >
-                                <Button
-                                  type="button"
-                                  onClick={validateYoutubeUrl}
-                                  disabled={
-                                    status === "validating" || !youtubeUrl
-                                  }
-                                  className="bg-corporate-600 hover:bg-corporate-700 text-white transition-all duration-200 whitespace-nowrap"
-                                >
-                                  {status === "validating" ? (
-                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                                  ) : (
-                                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                                  )}
-                                  Validate
-                                </Button>
-                              </motion.div>
-                            </div>
+                            <span className="text-xs text-slate-500 dark:text-slate-400">
+                              {detailLevel[0] < 0.33
+                                ? "Concise"
+                                : detailLevel[0] < 0.66
+                                ? "Balanced"
+                                : "Detailed"}
+                            </span>
                           </div>
-                        </motion.div>
-                      ) : (
-                        <motion.div
-                          className="space-y-4"
-                          initial="hidden"
-                          animate="visible"
-                          variants={fadeIn}
-                        >
-                          <Alert className="bg-corporate-50 dark:bg-corporate-900/20 border-corporate-200 dark:border-corporate-800 rounded-lg">
-                            <CheckCircle2 className="h-4 w-4 text-corporate-600 dark:text-corporate-400" />
-                            <AlertTitle className="font-medium">
-                              YouTube URL Validated
-                            </AlertTitle>
-                            <AlertDescription>
-                              The YouTube URL is valid. You can now summarize
-                              this podcast.
-                            </AlertDescription>
-                          </Alert>
-
-                          <motion.div
-                            className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700"
-                            whileHover={{
-                              y: -2,
-                              boxShadow:
-                                "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
-                            }}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="bg-red-500 rounded-lg p-2 flex-shrink-0">
-                                <Youtube className="h-5 w-5 text-white" />
-                              </div>
-                              <div className="truncate">
-                                <p className="text-sm font-medium truncate">
-                                  {youtubeUrl}
-                                </p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                  Ready to process
-                                </p>
-                              </div>
-                            </div>
-                          </motion.div>
-
-                          {/* Detail Level Slider */}
-                          <motion.div
-                            className="mt-6 space-y-4"
-                            initial="hidden"
-                            animate="visible"
-                            variants={fadeIn}
-                          >
-                            <div className="flex justify-between items-center">
-                              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Summary Detail Level
-                              </Label>
-                              <span className="text-xs text-slate-500 dark:text-slate-400">
-                                {detailLevel[0] < 0.33
-                                  ? "Concise"
-                                  : detailLevel[0] < 0.66
-                                  ? "Balanced"
-                                  : "Detailed"}
-                              </span>
-                            </div>
-                            <Slider
-                              defaultValue={[0.5]}
-                              max={1}
-                              step={0.25}
-                              value={detailLevel}
-                              onValueChange={setDetailLevel}
-                              className="py-2"
-                            />
-                            <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-                              <span>Shorter</span>
-                              <span>Longer</span>
-                            </div>
-                          </motion.div>
+                          <Slider
+                            defaultValue={[0.5]}
+                            max={1}
+                            step={0.25}
+                            value={detailLevel}
+                            onValueChange={setDetailLevel}
+                            className="py-2"
+                          />
+                          <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                            <span>Shorter</span>
+                            <span>Longer</span>
+                          </div>
                         </motion.div>
                       )}
                     </TabsContent>
 
-                    <TabsContent value="other" className="space-y-6">
-                      {!isRssValid ? (
-                        <motion.div
-                          className="space-y-4"
-                          initial="hidden"
-                          animate="visible"
-                          variants={fadeIn}
-                        >
-                          <div className="space-y-2">
-                            <Label
-                              htmlFor="rss-url"
-                              className="text-sm font-medium text-slate-700 dark:text-slate-300"
-                            >
-                              Podcast RSS Feed URL
-                            </Label>
-                            <div className="flex gap-2 w-full">
-                              <motion.div
-                                className="flex-1"
-                                whileFocus={{ scale: 1.01 }}
-                              >
-                                <Input
-                                  id="rss-url"
-                                  placeholder="https://feeds.example.com/podcast.xml"
-                                  value={rssFeedUrl}
-                                  onChange={(e) =>
-                                    setRssFeedUrl(e.target.value)
-                                  }
-                                  required
-                                  className="border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-corporate-500/20 dark:focus:ring-corporate-500/20 transition-all w-full"
-                                />
-                              </motion.div>
-                              <motion.div
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                className="flex-shrink-0"
-                              >
-                                <Button
-                                  type="button"
-                                  onClick={validateRssFeed}
-                                  disabled={
-                                    status === "validating" || !rssFeedUrl
-                                  }
-                                  className="bg-corporate-600 hover:bg-corporate-700 text-white transition-all duration-200 whitespace-nowrap"
-                                >
-                                  {status === "validating" ? (
-                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                                  ) : (
-                                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                                  )}
-                                  Validate
-                                </Button>
-                              </motion.div>
-                            </div>
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <motion.div
-                          className="space-y-4"
-                          initial="hidden"
-                          animate="visible"
-                          variants={fadeIn}
-                        >
-                          <Alert className="bg-corporate-50 dark:bg-corporate-900/20 border-corporate-200 dark:border-corporate-800 rounded-lg">
-                            <CheckCircle2 className="h-4 w-4 text-corporate-600 dark:text-corporate-400" />
-                            <AlertTitle className="font-medium">
-                              RSS Feed Validated
-                            </AlertTitle>
-                            <AlertDescription>
-                              The RSS feed is valid. Please enter the episode
-                              name.
-                            </AlertDescription>
-                          </Alert>
+                    <TabsContent value="rss" className="space-y-6">
+                      <UrlValidator
+                        platform="rss"
+                        value={rssFeedUrl}
+                        onChange={setRssFeedUrl}
+                        onValidationChange={handleRssValidation}
+                        placeholder="https://feeds.example.com/podcast.xml"
+                        label="Podcast RSS Feed URL"
+                        apiUrl={API_URL}
+                      />
 
+                      {isRssValid && (
+                        <motion.div
+                          className="space-y-4"
+                          initial="hidden"
+                          animate="visible"
+                          variants={fadeIn}
+                        >
                           <div className="space-y-2">
                             <Label
                               htmlFor="episode-name"
@@ -518,19 +396,44 @@ export function PodcastSummarizer() {
                             >
                               Episode Name
                             </Label>
-                            <motion.div whileFocus={{ scale: 1.01 }}>
-                              <Input
-                                id="episode-name"
-                                placeholder="Enter the exact episode name"
-                                value={episodeName}
-                                onChange={(e) => setEpisodeName(e.target.value)}
-                                required
-                                className="border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-corporate-500/20 dark:focus:ring-corporate-500/20 transition-all"
-                              />
-                            </motion.div>
+                            <Input
+                              id="episode-name"
+                              placeholder="Enter the exact episode name"
+                              value={episodeName}
+                              onChange={(e) => setEpisodeName(e.target.value)}
+                              required
+                              className="border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-corporate-500/20 dark:focus:ring-corporate-500/20 transition-all"
+                            />
+                            {rssValidationData?.sample_episodes && (
+                              <div className="mt-2">
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                                  Recent episodes (click to select):
+                                </p>
+                                <div className="space-y-1">
+                                  {rssValidationData.sample_episodes
+                                    .slice(0, 3)
+                                    .map((episode: any, index: number) => (
+                                      <button
+                                        key={index}
+                                        type="button"
+                                        onClick={() =>
+                                          setEpisodeName(episode.title)
+                                        }
+                                        className="w-full text-left p-2 text-xs bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded border border-slate-200 dark:border-slate-700 transition-colors"
+                                      >
+                                        <div className="truncate font-medium">
+                                          {episode.title}
+                                        </div>
+                                        <div className="text-slate-500 dark:text-slate-400">
+                                          {episode.published}
+                                        </div>
+                                      </button>
+                                    ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
 
-                          {/* Detail Level Slider */}
                           <motion.div
                             className="mt-6 space-y-4"
                             initial="hidden"
@@ -568,7 +471,7 @@ export function PodcastSummarizer() {
                   </Tabs>
 
                   <AnimatePresence>
-                    {error && (
+                    {(error || taskError) && (
                       <motion.div
                         initial={{ opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -580,7 +483,9 @@ export function PodcastSummarizer() {
                         >
                           <AlertCircle className="h-4 w-4" />
                           <AlertTitle>Error</AlertTitle>
-                          <AlertDescription>{error}</AlertDescription>
+                          <AlertDescription>
+                            {error || taskError}
+                          </AlertDescription>
                         </Alert>
                       </motion.div>
                     )}
@@ -588,23 +493,18 @@ export function PodcastSummarizer() {
 
                   <div className="mt-8">
                     <motion.div
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
+                      whileHover={{ scale: canSubmit() ? 1.02 : 1 }}
+                      whileTap={{ scale: canSubmit() ? 0.98 : 1 }}
                     >
                       <Button
                         type="submit"
-                        className="w-full py-6 bg-corporate-600 hover:bg-corporate-700 text-white rounded-lg font-medium shadow-corporate hover:shadow-corporate-lg transition-all duration-200"
-                        disabled={
-                          status === "loading" ||
-                          status === "validating" ||
-                          (source === "youtube" && !isYoutubeValid) ||
-                          (source === "other" && (!isRssValid || !episodeName))
-                        }
+                        className="w-full py-6 bg-corporate-600 hover:bg-corporate-700 text-white rounded-lg font-medium shadow-corporate hover:shadow-corporate-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={!canSubmit()}
                       >
-                        {status === "loading" ? (
+                        {status === "loading" || isLoading ? (
                           <>
                             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                            Processing...
+                            Starting Processing...
                           </>
                         ) : (
                           <>
@@ -651,7 +551,7 @@ export function PodcastSummarizer() {
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
 
-                    {/* New Summary button - enhanced version */}
+                    {/* New Summary button */}
                     <div className="absolute top-4 right-4 z-10">
                       <motion.div
                         whileHover={{ scale: 1.05 }}
@@ -823,33 +723,6 @@ export function PodcastSummarizer() {
                         Copy to Clipboard
                       </Button>
                     </motion.div>
-                    <motion.div
-                      whileHover={{ scale: 1.05, y: -2 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="shadow-sm hover:shadow-md transition-all"
-                    >
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Export as PDF
-                      </Button>
-                    </motion.div>
-                    <motion.div
-                      whileHover={{ scale: 1.05, y: -2 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="shadow-sm hover:shadow-md transition-all"
-                    >
-                      <Button
-                        size="sm"
-                        className="bg-corporate-600 hover:bg-corporate-700 text-white shadow-sm"
-                      >
-                        <Share2 className="h-4 w-4 mr-2" />
-                        Share Summary
-                      </Button>
-                    </motion.div>
                   </motion.div>
                 </motion.div>
               </CardContent>
@@ -859,9 +732,9 @@ export function PodcastSummarizer() {
                   <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">
                     Generated by AI Podcast Summarizer
                   </span>
-                  {youtubeUrl && (
+                  {(youtubeUrl || rssFeedUrl) && (
                     <a
-                      href={youtubeUrl}
+                      href={source === "youtube" ? youtubeUrl : rssFeedUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-corporate-600 dark:text-corporate-400 hover:underline flex items-center font-medium"
