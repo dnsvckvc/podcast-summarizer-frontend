@@ -1,21 +1,21 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { motion, AnimatePresence } from "framer-motion";
+import { useUrlValidation } from "@/hooks/use-url-validation";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
-  CheckCircle2,
-  AlertCircle,
+  Hash,
   Loader2,
   Youtube,
   Podcast,
-  ExternalLink,
   Calendar,
-  Hash,
+  AlertCircle,
+  ExternalLink,
+  CheckCircle2,
 } from "lucide-react";
-import { useUrlValidation } from "@/hooks/use-url-validation";
 
 interface UrlValidatorProps {
   platform: "youtube" | "rss";
@@ -24,7 +24,6 @@ interface UrlValidatorProps {
   onValidationChange: (isValid: boolean, data?: any) => void;
   placeholder: string;
   label: string;
-  apiUrl: string;
 }
 
 export function UrlValidator({
@@ -34,13 +33,10 @@ export function UrlValidator({
   onValidationChange,
   placeholder,
   label,
-  apiUrl,
 }: UrlValidatorProps) {
-  const { validateUrl, isValidating, lastValidation } =
-    useUrlValidation(apiUrl);
+  const { validateUrl, isValidating, lastValidation } = useUrlValidation();
   const [hasValidated, setHasValidated] = useState(false);
 
-  // Debounced validation
   useEffect(() => {
     if (!value.trim()) {
       setHasValidated(false);
@@ -52,12 +48,11 @@ export function UrlValidator({
       if (value.trim() && !isValidating) {
         handleValidation();
       }
-    }, 1000); // 1 second debounce
+    }, 1000);
 
     return () => clearTimeout(timeoutId);
   }, [value, platform]);
 
-  // Update parent component when validation changes
   useEffect(() => {
     if (lastValidation) {
       onValidationChange(lastValidation.valid, lastValidation.data);

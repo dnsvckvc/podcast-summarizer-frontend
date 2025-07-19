@@ -5,7 +5,7 @@ import type { Summary } from "@/utils/models";
 
 import Image from "next/image";
 
-import { useState, useEffect } from "react";
+import { API_URL } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -14,10 +14,17 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTaskStatus } from "@/hooks/use-task-status";
+import { useState, useEffect, useCallback } from "react";
 import { TaskProgress } from "@/components/task-progress";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  fadeIn,
+  cardVariants,
+  staggerItems,
+  itemVariants,
+} from "@/hooks/use-podcast-summarizer";
 import {
   Card,
   CardTitle,
@@ -44,88 +51,54 @@ import {
   ExternalLink,
 } from "lucide-react";
 
-const fadeIn = {
-  hidden: { opacity: 0, y: 10 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.4 },
-  },
-  exit: {
-    opacity: 0,
-    y: -10,
-    transition: { duration: 0.2 },
-  },
-};
-
-const staggerItems = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.1,
-    },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 10 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
-};
-
-const cardVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      type: "spring",
-      stiffness: 100,
-      damping: 15,
-      mass: 1,
-    },
-  },
-};
-
 type PodcastSource = "youtube" | "rss";
 type SummaryStatus = "idle" | "loading" | "success" | "error";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+interface FormState {
+  youtubeUrl: string;
+  rssFeedUrl: string;
+  episodeName: string;
+  detailLevel: number[];
+  isYoutubeValid: boolean;
+  isRssValid: boolean;
+  rssValidationData: any;
+}
+
+const initialFormState: FormState = {
+  youtubeUrl: "",
+  rssFeedUrl: "",
+  episodeName: "",
+  detailLevel: [0.5],
+  isYoutubeValid: false,
+  isRssValid: false,
+  rssValidationData: null,
+};
 
 export function PodcastSummarizer() {
+  const [source, setSource] = useState<PodcastSource>("youtube");
+  const [formState, setFormState] = useState<FormState>(initialFormState);
+  const [status, setStatus] = useState<SummaryStatus>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+
   const {
     taskInfo,
     isLoading,
     error: taskError,
     startPolling,
     stopPolling,
-  } = useTaskStatus(API_URL);
-
-  const [source, setSource] = useState<PodcastSource>("youtube");
-  const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [rssFeedUrl, setRssFeedUrl] = useState("");
-  const [episodeName, setEpisodeName] = useState("");
-  const [detailLevel, setDetailLevel] = useState([0.5]);
-  const [status, setStatus] = useState<SummaryStatus>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [isYoutubeValid, setIsYoutubeValid] = useState(false);
-  const [isRssValid, setIsRssValid] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
-  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
-  const [youtubeValidationData, setYoutubeValidationData] = useState<any>(null);
-  const [rssValidationData, setRssValidationData] = useState<any>(null);
+  } = useTaskStatus();
 
   useEffect(() => {
     if (copySuccess) {
-      const timer = setTimeout(() => {
-        setCopySuccess(false);
-      }, 2000);
+      const timer = setTimeout(() => setCopySuccess(false), 2000);
       return () => clearTimeout(timer);
     }
   }, [copySuccess]);
 
-  useEffect(() => {
+  const handleTaskCompletion = useCallback(() => {
     if (taskInfo?.status === "completed" && taskInfo.result) {
       setSummary({
         title: taskInfo.result.title,
@@ -142,7 +115,35 @@ export function PodcastSummarizer() {
       setStatus("error");
       setCurrentTaskId(null);
     }
-  }, [taskInfo]);
+  }, [taskInfo?.status, taskInfo?.result, taskInfo?.error]);
+
+  useEffect(() => {
+    handleTaskCompletion();
+  }, [handleTaskCompletion]);
+
+  const updateFormState = useCallback((updates: Partial<FormState>) => {
+    setFormState((prev) => ({ ...prev, ...updates }));
+  }, []);
+
+  const resetForm = useCallback(() => {
+    setFormState(initialFormState);
+    setStatus("idle");
+    setError(null);
+    setSummary(null);
+    setCurrentTaskId(null);
+    stopPolling();
+  }, [stopPolling]);
+
+  const resetToForm = useCallback(() => {
+    setStatus("idle");
+    setSummary(null);
+    setError(null);
+  }, []);
+
+  const handleSourceChange = useCallback((value: string) => {
+    setSource(value as PodcastSource);
+    setError(null);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,9 +153,10 @@ export function PodcastSummarizer() {
 
     try {
       const payload = {
-        source_url: source === "youtube" ? youtubeUrl : rssFeedUrl,
-        episode_name: source === "youtube" ? null : episodeName,
-        detail_level: detailLevel[0],
+        source_url:
+          source === "youtube" ? formState.youtubeUrl : formState.rssFeedUrl,
+        episode_name: source === "youtube" ? null : formState.episodeName,
+        detail_level: formState.detailLevel[0],
         platform: source,
       };
 
@@ -188,49 +190,229 @@ export function PodcastSummarizer() {
     }
   };
 
-  const resetForm = () => {
-    setYoutubeUrl("");
-    setRssFeedUrl("");
-    setEpisodeName("");
-    setDetailLevel([0.5]);
-    setStatus("idle");
-    setError(null);
-    setSummary(null);
-    setIsYoutubeValid(false);
-    setIsRssValid(false);
-    setCurrentTaskId(null);
-    setYoutubeValidationData(null);
-    setRssValidationData(null);
-    stopPolling();
-  };
-
-  const copyToClipboard = () => {
+  const copyToClipboard = useCallback(() => {
     if (summary?.content) {
       navigator.clipboard.writeText(summary.content);
       setCopySuccess(true);
     }
-  };
+  }, [summary?.content]);
 
-  const handleYoutubeValidation = (isValid: boolean, data?: any) => {
-    setIsYoutubeValid(isValid);
-    setYoutubeValidationData(data);
-  };
+  const handleYoutubeValidation = useCallback(
+    (isValid: boolean, data?: any) => {
+      updateFormState({ isYoutubeValid: isValid });
+    },
+    [updateFormState]
+  );
 
-  const handleRssValidation = (isValid: boolean, data?: any) => {
-    setIsRssValid(isValid);
-    setRssValidationData(data);
-  };
+  const handleRssValidation = useCallback(
+    (isValid: boolean, data?: any) => {
+      updateFormState({ isRssValid: isValid, rssValidationData: data });
+    },
+    [updateFormState]
+  );
 
-  const canSubmit = () => {
+  const canSubmit = useCallback(() => {
     if (status === "loading" || isLoading) return false;
 
     if (source === "youtube") {
-      return isYoutubeValid && youtubeUrl.trim();
+      return formState.isYoutubeValid && formState.youtubeUrl.trim();
     } else {
-      return isRssValid && rssFeedUrl.trim() && episodeName.trim();
+      return (
+        formState.isRssValid &&
+        formState.rssFeedUrl.trim() &&
+        formState.episodeName.trim()
+      );
     }
-  };
+  }, [
+    status,
+    isLoading,
+    source,
+    formState.isYoutubeValid,
+    formState.youtubeUrl,
+    formState.isRssValid,
+    formState.rssFeedUrl,
+    formState.episodeName,
+  ]);
 
+  const renderMetadataBadges = useCallback((summary: Summary) => {
+    const badges = [];
+
+    if (summary.channel) {
+      badges.push(
+        <Badge
+          key="channel"
+          variant="outline"
+          className="flex items-center gap-1 text-white border-white/30 bg-black/30 backdrop-blur-sm"
+        >
+          <User className="h-3 w-3" />
+          {summary.channel}
+        </Badge>
+      );
+    }
+
+    if (summary.duration_string) {
+      badges.push(
+        <Badge
+          key="duration"
+          variant="outline"
+          className="flex items-center gap-1 text-white border-white/30 bg-black/30 backdrop-blur-sm"
+        >
+          <Clock className="h-3 w-3" />
+          {summary.duration_string}
+        </Badge>
+      );
+    }
+
+    if (summary.release_date) {
+      badges.push(
+        <Badge
+          key="date"
+          variant="outline"
+          className="flex items-center gap-1 text-white border-white/30 bg-black/30 backdrop-blur-sm"
+        >
+          <Calendar className="h-3 w-3" />
+          {summary.release_date}
+        </Badge>
+      );
+    }
+
+    return badges;
+  }, []);
+
+  const renderSummaryHeader = useCallback(
+    (summary: Summary) => {
+      const hasThumbnail = summary.thumbnail;
+      const badges = renderMetadataBadges(summary);
+
+      if (hasThumbnail) {
+        return (
+          <div className="relative w-full h-56 md:h-72 overflow-hidden">
+            <Image
+              src={summary.thumbnail! || "/placeholder.svg"}
+              alt={summary.title}
+              fill
+              className="object-cover"
+              priority
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
+
+            {/* New Summary button */}
+            <div className="absolute top-4 right-4 z-10">
+              <motion.div
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="animate-float"
+              >
+                <Button
+                  onClick={resetToForm}
+                  className="bg-corporate-600 hover:bg-corporate-700 text-white border-corporate-500 shadow-lg hover:shadow-xl hover:shadow-corporate-500/20 transition-all duration-300 flex items-center gap-2 px-4 py-2 rounded-full"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  <span>New Summary</span>
+                </Button>
+              </motion.div>
+            </div>
+
+            {/* Podcast metadata on image */}
+            <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  delay: 0.2,
+                  type: "spring",
+                  stiffness: 100,
+                }}
+                className="inline-flex items-center px-3 py-1 mb-3 text-xs font-medium rounded-full bg-corporate-600/90 text-white"
+              >
+                <Sparkles className="h-3 w-3 mr-2" />
+                AI-Powered Summary
+              </motion.div>
+
+              <motion.h2
+                className="text-2xl md:text-3xl font-bold mb-2 line-clamp-2 font-heading tracking-tight"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3, type: "spring" }}
+              >
+                {summary.title}
+              </motion.h2>
+
+              {badges.length > 0 && (
+                <motion.div
+                  className="flex flex-wrap gap-2 mt-2"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.4 }}
+                >
+                  {badges}
+                </motion.div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // No thumbnail - show header with metadata
+      return (
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-corporate-50 to-slate-50 dark:from-corporate-900/20 dark:to-slate-900">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2, type: "spring", stiffness: 100 }}
+                className="inline-flex items-center px-3 py-1 mb-3 text-xs font-medium rounded-full bg-corporate-600 text-white"
+              >
+                <Sparkles className="h-3 w-3 mr-2" />
+                AI-Powered Summary
+              </motion.div>
+
+              <motion.h2
+                className="text-2xl md:text-3xl font-bold mb-3 text-slate-900 dark:text-white font-heading tracking-tight"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3, type: "spring" }}
+              >
+                {summary.title}
+              </motion.h2>
+
+              {badges.length > 0 && (
+                <motion.div
+                  className="flex flex-wrap gap-2"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.4 }}
+                >
+                  {badges.map((badge, index) => (
+                    <div
+                      key={index}
+                      className="[&>*]:text-slate-700 [&>*]:dark:text-slate-300 [&>*]:border-slate-300 [&>*]:dark:border-slate-600 [&>*]:bg-white [&>*]:dark:bg-slate-800"
+                    >
+                      {badge}
+                    </div>
+                  ))}
+                </motion.div>
+              )}
+            </div>
+
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                onClick={resetToForm}
+                className="bg-corporate-600 hover:bg-corporate-700 text-white shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-2 px-4 py-2 rounded-full"
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span>New Summary</span>
+              </Button>
+            </motion.div>
+          </div>
+        </div>
+      );
+    },
+    [renderMetadataBadges, resetToForm]
+  );
+
+  // Show task progress if processing
   if (currentTaskId && taskInfo) {
     return (
       <div className="space-y-8">
@@ -293,10 +475,7 @@ export function PodcastSummarizer() {
                   <Tabs
                     defaultValue="youtube"
                     className="w-full"
-                    onValueChange={(value) => {
-                      setSource(value as PodcastSource);
-                      setError(null);
-                    }}
+                    onValueChange={handleSourceChange}
                   >
                     <TabsList className="flex w-full mb-8 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
                       <TabsTrigger
@@ -328,15 +507,16 @@ export function PodcastSummarizer() {
                     <TabsContent value="youtube" className="space-y-6 w-full">
                       <UrlValidator
                         platform="youtube"
-                        value={youtubeUrl}
-                        onChange={setYoutubeUrl}
+                        value={formState.youtubeUrl}
+                        onChange={(value) =>
+                          updateFormState({ youtubeUrl: value })
+                        }
                         onValidationChange={handleYoutubeValidation}
                         placeholder="https://www.youtube.com/watch?v=..."
                         label="YouTube Video URL"
-                        apiUrl={API_URL}
                       />
 
-                      {isYoutubeValid && (
+                      {formState.isYoutubeValid && (
                         <motion.div
                           className="mt-6 space-y-4"
                           initial="hidden"
@@ -348,9 +528,9 @@ export function PodcastSummarizer() {
                               Summary Detail Level
                             </Label>
                             <span className="text-xs text-slate-500 dark:text-slate-400">
-                              {detailLevel[0] < 0.33
+                              {formState.detailLevel[0] < 0.33
                                 ? "Concise"
-                                : detailLevel[0] < 0.66
+                                : formState.detailLevel[0] < 0.66
                                 ? "Balanced"
                                 : "Detailed"}
                             </span>
@@ -359,8 +539,10 @@ export function PodcastSummarizer() {
                             defaultValue={[0.5]}
                             max={1}
                             step={0.25}
-                            value={detailLevel}
-                            onValueChange={setDetailLevel}
+                            value={formState.detailLevel}
+                            onValueChange={(value) =>
+                              updateFormState({ detailLevel: value })
+                            }
                             className="py-2"
                           />
                           <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
@@ -374,15 +556,16 @@ export function PodcastSummarizer() {
                     <TabsContent value="rss" className="space-y-6">
                       <UrlValidator
                         platform="rss"
-                        value={rssFeedUrl}
-                        onChange={setRssFeedUrl}
+                        value={formState.rssFeedUrl}
+                        onChange={(value) =>
+                          updateFormState({ rssFeedUrl: value })
+                        }
                         onValidationChange={handleRssValidation}
                         placeholder="https://feeds.example.com/podcast.xml"
                         label="Podcast RSS Feed URL"
-                        apiUrl={API_URL}
                       />
 
-                      {isRssValid && (
+                      {formState.isRssValid && (
                         <motion.div
                           className="space-y-4"
                           initial="hidden"
@@ -399,25 +582,29 @@ export function PodcastSummarizer() {
                             <Input
                               id="episode-name"
                               placeholder="Enter the exact episode name"
-                              value={episodeName}
-                              onChange={(e) => setEpisodeName(e.target.value)}
+                              value={formState.episodeName}
+                              onChange={(e) =>
+                                updateFormState({ episodeName: e.target.value })
+                              }
                               required
                               className="border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-corporate-500/20 dark:focus:ring-corporate-500/20 transition-all"
                             />
-                            {rssValidationData?.sample_episodes && (
+                            {formState.rssValidationData?.sample_episodes && (
                               <div className="mt-2">
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
                                   Recent episodes (click to select):
                                 </p>
-                                <div className="space-y-1">
-                                  {rssValidationData.sample_episodes
-                                    .slice(0, 3)
+                                <div className="space-y-1 max-h-48 overflow-y-auto">
+                                  {formState.rssValidationData.sample_episodes
+                                    .slice(0, 10)
                                     .map((episode: any, index: number) => (
                                       <button
                                         key={index}
                                         type="button"
                                         onClick={() =>
-                                          setEpisodeName(episode.title)
+                                          updateFormState({
+                                            episodeName: episode.title,
+                                          })
                                         }
                                         className="w-full text-left p-2 text-xs bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded border border-slate-200 dark:border-slate-700 transition-colors"
                                       >
@@ -445,9 +632,9 @@ export function PodcastSummarizer() {
                                 Summary Detail Level
                               </Label>
                               <span className="text-xs text-slate-500 dark:text-slate-400">
-                                {detailLevel[0] < 0.33
+                                {formState.detailLevel[0] < 0.33
                                   ? "Concise"
-                                  : detailLevel[0] < 0.66
+                                  : formState.detailLevel[0] < 0.66
                                   ? "Balanced"
                                   : "Detailed"}
                               </span>
@@ -456,8 +643,10 @@ export function PodcastSummarizer() {
                               defaultValue={[0.5]}
                               max={1}
                               step={0.25}
-                              value={detailLevel}
-                              onValueChange={setDetailLevel}
+                              value={formState.detailLevel}
+                              onValueChange={(value) =>
+                                updateFormState({ detailLevel: value })
+                              }
                               className="py-2"
                             />
                             <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
@@ -540,96 +729,7 @@ export function PodcastSummarizer() {
             <Card className="w-full overflow-hidden border border-slate-200 dark:border-slate-700 shadow-corporate bg-white dark:bg-slate-900 rounded-xl relative z-10">
               {/* Header with podcast info */}
               <CardHeader className="p-0">
-                {summary?.thumbnail && (
-                  <div className="relative w-full h-56 md:h-72 overflow-hidden">
-                    <Image
-                      src={summary.thumbnail || "/placeholder.svg"}
-                      alt={summary.title}
-                      fill
-                      className="object-cover"
-                      priority
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent"></div>
-
-                    {/* New Summary button */}
-                    <div className="absolute top-4 right-4 z-10">
-                      <motion.div
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        className="animate-float"
-                      >
-                        <Button
-                          onClick={resetForm}
-                          className="bg-corporate-600 hover:bg-corporate-700 text-white border-corporate-500 shadow-lg hover:shadow-xl hover:shadow-corporate-500/20 transition-all duration-300 flex items-center gap-2 px-4 py-2 rounded-full"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                          <span>New Summary</span>
-                        </Button>
-                      </motion.div>
-                    </div>
-
-                    {/* Podcast metadata on image */}
-                    <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
-                      <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{
-                          delay: 0.2,
-                          type: "spring",
-                          stiffness: 100,
-                        }}
-                        className="inline-flex items-center px-3 py-1 mb-3 text-xs font-medium rounded-full bg-corporate-600/90 text-white"
-                      >
-                        <Sparkles className="h-3 w-3 mr-2" />
-                        AI-Powered Summary
-                      </motion.div>
-
-                      <motion.h2
-                        className="text-2xl md:text-3xl font-bold mb-2 line-clamp-2 font-heading tracking-tight"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.3, type: "spring" }}
-                      >
-                        {summary?.title}
-                      </motion.h2>
-
-                      <motion.div
-                        className="flex flex-wrap gap-2 mt-2"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.4 }}
-                      >
-                        {summary?.channel && (
-                          <Badge
-                            variant="outline"
-                            className="flex items-center gap-1 text-white border-white/30 bg-black/30 backdrop-blur-sm"
-                          >
-                            <User className="h-3 w-3" />
-                            {summary.channel}
-                          </Badge>
-                        )}
-                        {summary?.duration_string && (
-                          <Badge
-                            variant="outline"
-                            className="flex items-center gap-1 text-white border-white/30 bg-black/30 backdrop-blur-sm"
-                          >
-                            <Clock className="h-3 w-3" />
-                            {summary.duration_string}
-                          </Badge>
-                        )}
-                        {summary?.release_date && (
-                          <Badge
-                            variant="outline"
-                            className="flex items-center gap-1 text-white border-white/30 bg-black/30 backdrop-blur-sm"
-                          >
-                            <Calendar className="h-3 w-3" />
-                            {summary.release_date}
-                          </Badge>
-                        )}
-                      </motion.div>
-                    </div>
-                  </div>
-                )}
+                {renderSummaryHeader(summary!)}
               </CardHeader>
 
               {/* Summary content */}
@@ -732,9 +832,13 @@ export function PodcastSummarizer() {
                   <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">
                     Generated by AI Podcast Summarizer
                   </span>
-                  {(youtubeUrl || rssFeedUrl) && (
+                  {(formState.youtubeUrl || formState.rssFeedUrl) && (
                     <a
-                      href={source === "youtube" ? youtubeUrl : rssFeedUrl}
+                      href={
+                        source === "youtube"
+                          ? formState.youtubeUrl
+                          : formState.rssFeedUrl
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-corporate-600 dark:text-corporate-400 hover:underline flex items-center font-medium"

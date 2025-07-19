@@ -1,9 +1,10 @@
 "use client";
 
+import { API_URL } from "@/lib/constants";
 import { useState, useCallback } from "react";
 import { ValidationResult, UseUrlValidationReturn } from "@/utils/models";
 
-export function useUrlValidation(apiUrl: string): UseUrlValidationReturn {
+export function useUrlValidation(): UseUrlValidationReturn {
   const [isValidating, setIsValidating] = useState(false);
   const [lastValidation, setLastValidation] = useState<ValidationResult | null>(
     null
@@ -20,7 +21,7 @@ export function useUrlValidation(apiUrl: string): UseUrlValidationReturn {
       setIsValidating(true);
 
       try {
-        const response = await fetch(`${apiUrl}/api/validate`, {
+        const response = await fetch(`${API_URL}/api/validate`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -52,7 +53,7 @@ export function useUrlValidation(apiUrl: string): UseUrlValidationReturn {
         setIsValidating(false);
       }
     },
-    [apiUrl]
+    [API_URL]
   );
 
   return {

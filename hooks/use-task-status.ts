@@ -2,81 +2,97 @@
 
 import type { TaskInfo, UseTaskStatusReturn } from "@/utils/models";
 
-import { useState, useEffect, useCallback } from "react";
+import { API_URL } from "@/lib/constants";
+import { useState, useEffect, useCallback, useRef } from "react";
 
-export function useTaskStatus(apiUrl: string): UseTaskStatusReturn {
+export function useTaskStatus(): UseTaskStatusReturn {
   const [taskInfo, setTaskInfo] = useState<TaskInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isPollingRef = useRef(false);
 
-  const fetchTaskStatus = useCallback(
-    async (taskId: string) => {
-      try {
-        const response = await fetch(`${apiUrl}/api/status/${taskId}`);
-        const data = await response.json();
+  const fetchTaskStatus = useCallback(async (taskId: string) => {
+    if (!isPollingRef.current) return;
 
-        if (data.success) {
-          setTaskInfo(data.task);
-          setError(null);
+    try {
+      const response = await fetch(`${API_URL}/api/status/${taskId}`);
+      const data = await response.json();
 
-          if (
-            data.task.status === "completed" ||
-            data.task.status === "failed"
-          ) {
-            resetInterval();
+      if (data.success) {
+        setTaskInfo(data.task);
+        setError(null);
+
+        if (data.task.status === "completed" || data.task.status === "failed") {
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
           }
-        } else {
-          setError(data.error || "Failed to fetch task status");
+          isPollingRef.current = false;
+          setIsLoading(false);
         }
-      } catch (err) {
-        setError("Network error while fetching task status");
-        resetInterval();
+      } else {
+        setError(data.error || "Failed to fetch task status");
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+        isPollingRef.current = false;
+        setIsLoading(false);
       }
-    },
-    [apiUrl, intervalId]
-  );
-
-  const resetInterval = () => {
-    if (intervalId) {
-      clearInterval(intervalId);
-      setIntervalId(null);
+    } catch (err) {
+      console.error("Error fetching task status:", err);
+      setError("Network error while fetching task status");
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      isPollingRef.current = false;
+      setIsLoading(false);
     }
-    setIsLoading(false);
-  };
+  }, []);
 
   const startPolling = useCallback(
     (taskId: string) => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+
       setIsLoading(true);
       setError(null);
       setTaskInfo(null);
-
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      isPollingRef.current = true;
 
       fetchTaskStatus(taskId);
 
-      const newIntervalId = setInterval(() => {
+      intervalRef.current = setInterval(() => {
         fetchTaskStatus(taskId);
       }, 5000);
-
-      setIntervalId(newIntervalId);
     },
-    [fetchTaskStatus, intervalId]
+    [fetchTaskStatus]
   );
 
   const stopPolling = useCallback(() => {
-    resetInterval();
-  }, [intervalId]);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    isPollingRef.current = false;
+    setIsLoading(false);
+    setTaskInfo(null);
+    setError(null);
+  }, []);
 
   useEffect(() => {
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
+      isPollingRef.current = false;
     };
-  }, [intervalId]);
+  }, []);
 
   return {
     taskInfo,

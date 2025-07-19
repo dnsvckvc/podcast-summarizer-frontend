@@ -1,19 +1,20 @@
 "use client";
 
+import type { TaskInfo } from "@/utils/models";
+
 import { motion } from "framer-motion";
-import { Progress } from "../components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "../components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Clock,
+  Loader2,
   Download,
   FileText,
   Sparkles,
-  CheckCircle2,
   AlertCircle,
-  Clock,
-  Loader2,
+  CheckCircle2,
 } from "lucide-react";
-import type { TaskInfo } from "@/hooks/use-task-status";
 
 interface TaskProgressProps {
   taskInfo: TaskInfo;
