@@ -34,9 +34,11 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import {
+  Info,
   User,
   Copy,
   Clock,
+  Search,
   Youtube,
   Podcast,
   Loader2,
@@ -554,6 +556,51 @@ export function PodcastSummarizer() {
                     </TabsContent>
 
                     <TabsContent value="rss" className="space-y-6">
+                      {/* RSS Feed Help Section */}
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
+                      >
+                        <Alert className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 rounded-lg">
+                          <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          <AlertTitle className="font-medium text-blue-700 dark:text-blue-300">
+                            Need to find a podcast RSS feed?
+                          </AlertTitle>
+                          <AlertDescription className="text-blue-600 dark:text-blue-400 mt-1">
+                            <div className="flex items-center justify-between">
+                              <span>
+                                Visit{" "}
+                                <a
+                                  href="https://www.listennotes.com"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-medium underline hover:no-underline inline-flex items-center gap-1"
+                                >
+                                  Listen Notes
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>{" "}
+                                to search and find RSS feeds for any podcast.
+                              </span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30 h-auto p-1"
+                                onClick={() =>
+                                  window.open(
+                                    "https://www.listennotes.com",
+                                    "_blank"
+                                  )
+                                }
+                              >
+                                <Search className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                      </motion.div>
+
                       <UrlValidator
                         platform="rss"
                         value={formState.rssFeedUrl}
