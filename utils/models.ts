@@ -60,9 +60,20 @@ interface UseUrlValidationReturn {
   lastValidation: ValidationResult | null;
 }
 
+interface User {
+  username: string;
+  role: string;
+}
+
+interface AuthState {
+  isAuthenticated: boolean;
+  user: User | null;
+}
+
 export type {
   Summary,
   TaskInfo,
+  AuthState,
   ValidationResult,
   UseTaskStatusReturn,
   UseUrlValidationReturn,

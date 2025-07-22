@@ -2,7 +2,7 @@
 
 import type { TaskInfo, UseTaskStatusReturn } from "@/utils/models";
 
-import { API_URL } from "@/lib/constants";
+import { apiFetch } from "@/utils/api";
 import { useState, useEffect, useCallback, useRef } from "react";
 
 export function useTaskStatus(): UseTaskStatusReturn {
@@ -16,7 +16,7 @@ export function useTaskStatus(): UseTaskStatusReturn {
     if (!isPollingRef.current) return;
 
     try {
-      const response = await fetch(`${API_URL}/api/status/${taskId}`);
+      const response = await apiFetch(`/api/status/${taskId}`);
       const data = await response.json();
 
       if (data.success) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { API_URL } from "@/lib/constants";
+import { apiFetch } from "@/utils/api";
 import { useState, useCallback } from "react";
 import { ValidationResult, UseUrlValidationReturn } from "@/utils/models";
 
@@ -21,7 +21,7 @@ export function useUrlValidation(): UseUrlValidationReturn {
       setIsValidating(true);
 
       try {
-        const response = await fetch(`${API_URL}/api/validate`, {
+        const response = await apiFetch(`/api/validate`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -53,7 +53,7 @@ export function useUrlValidation(): UseUrlValidationReturn {
         setIsValidating(false);
       }
     },
-    [API_URL]
+    [apiFetch]
   );
 
   return {

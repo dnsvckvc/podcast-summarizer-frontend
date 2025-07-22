@@ -5,7 +5,7 @@ import type { Summary } from "@/utils/models";
 
 import Image from "next/image";
 
-import { API_URL } from "@/lib/constants";
+import { apiFetch } from "@/utils/api";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -162,11 +162,8 @@ export function PodcastSummarizer() {
         platform: source,
       };
 
-      const response = await fetch(`${API_URL}/api/summarize`, {
+      const response = await apiFetch("/api/summarize", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify(payload),
       });
 
