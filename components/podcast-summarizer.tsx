@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { UrlValidator } from "./url-validator";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { TranscriptViewer } from "./transcript-viewer";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTaskStatus } from "@/hooks/use-task-status";
 import { useState, useEffect, useCallback } from "react";
@@ -109,6 +110,7 @@ export function PodcastSummarizer() {
         channel: taskInfo.result.channel,
         duration_string: taskInfo.result.duration_string,
         release_date: taskInfo.result.release_date,
+        transcript: taskInfo.result.transcript,
       });
       setStatus("success");
       setCurrentTaskId(null);
@@ -852,6 +854,20 @@ export function PodcastSummarizer() {
                     className="mt-8 flex flex-wrap gap-3 justify-end"
                     variants={itemVariants}
                   >
+                    {/* Transcript Viewer */}
+                    {summary?.transcript && (
+                      <TranscriptViewer
+                        title={summary.title}
+                        transcript={summary.transcript}
+                        summary={summary.content}
+                        metadata={{
+                          channel: summary.channel,
+                          duration_string: summary.duration_string,
+                          release_date: summary.release_date,
+                        }}
+                      />
+                    )}
+
                     <motion.div
                       whileHover={{ scale: 1.05, y: -2 }}
                       whileTap={{ scale: 0.95 }}

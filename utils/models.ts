@@ -18,6 +18,7 @@ interface TaskInfo {
     channel?: string;
     duration_string?: string;
     release_date?: string;
+    transcript: string;
   };
   error?: string;
 }
@@ -37,6 +38,7 @@ interface Summary {
   channel?: string;
   duration_string?: string;
   release_date?: string;
+  transcript?: string;
 }
 
 interface ValidationResult {
@@ -71,6 +73,7 @@ interface AuthState {
 }
 
 export type {
+  User,
   Summary,
   TaskInfo,
   AuthState,
