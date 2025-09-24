@@ -12,7 +12,7 @@ export default function Footer() {
       transition={{ delay: 0.3 }}
     >
       <p className="text-slate-500 dark:text-slate-500">
-        © 2025 Inat Networks. All rights reserved.
+        © 2025 Very Early. All rights reserved.
       </p>
     </motion.footer>
   );

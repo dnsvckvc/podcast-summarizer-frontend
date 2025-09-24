@@ -102,7 +102,7 @@ export function Header({ user, onLogout }: HeaderProps) {
                 <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
                   Powered by{" "}
                   <span className="text-corporate-600 dark:text-corporate-400">
-                    Inat Networks
+                    Very Early
                   </span>
                 </p>
               </div>
