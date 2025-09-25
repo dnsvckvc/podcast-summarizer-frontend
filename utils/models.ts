@@ -13,7 +13,7 @@ interface TaskInfo {
   updated_at: number;
   result?: {
     title: string;
-    summary: string;
+    summary: string | null;
     thumbnail?: string;
     channel?: string;
     duration_string?: string;
@@ -33,7 +33,7 @@ interface UseTaskStatusReturn {
 
 interface Summary {
   title: string;
-  content: string;
+  content: string | null;
   thumbnail?: string;
   channel?: string;
   duration_string?: string;

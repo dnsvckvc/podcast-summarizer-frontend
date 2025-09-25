@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { UrlValidator } from "./url-validator";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Checkbox } from "@/components/ui/checkbox";
 import { TranscriptViewer } from "./transcript-viewer";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTaskStatus } from "@/hooks/use-task-status";
@@ -65,6 +66,7 @@ interface FormState {
   isYoutubeValid: boolean;
   isRssValid: boolean;
   rssValidationData: any;
+  transcribeOnly: boolean;
 }
 
 const initialFormState: FormState = {
@@ -75,10 +77,11 @@ const initialFormState: FormState = {
   isYoutubeValid: false,
   isRssValid: false,
   rssValidationData: null,
+  transcribeOnly: false,
 };
 
 export function PodcastSummarizer() {
-  const [source, setSource] = useState<PodcastSource>("youtube");
+  const [source, setSource] = useState<PodcastSource>("rss");
   const [formState, setFormState] = useState<FormState>(initialFormState);
   const [status, setStatus] = useState<SummaryStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +108,7 @@ export function PodcastSummarizer() {
     if (taskInfo?.status === "completed" && taskInfo.result) {
       setSummary({
         title: taskInfo.result.title,
-        content: taskInfo.result.summary,
+        content: taskInfo.result.summary || null,
         thumbnail: taskInfo.result.thumbnail,
         channel: taskInfo.result.channel,
         duration_string: taskInfo.result.duration_string,
@@ -160,11 +163,15 @@ export function PodcastSummarizer() {
         source_url:
           source === "youtube" ? formState.youtubeUrl : formState.rssFeedUrl,
         episode_name: source === "youtube" ? null : formState.episodeName,
-        detail_level: formState.detailLevel[0],
         platform: source,
       };
 
-      const response = await apiFetch("/api/summarize", {
+      if (!formState.transcribeOnly) {
+        payload.detail_level = formState.detailLevel[0];
+      }
+
+      const endpoint = formState.transcribeOnly ? "/api/transcribe" : "/api/summarize";
+      const response = await apiFetch(endpoint, {
         method: "POST",
         body: JSON.stringify(payload),
       });
@@ -474,7 +481,7 @@ export function PodcastSummarizer() {
               <CardContent className="pt-6">
                 <form onSubmit={handleSubmit}>
                   <Tabs
-                    defaultValue="youtube"
+                    value={source}
                     className="w-full"
                     onValueChange={handleSourceChange}
                   >
@@ -524,31 +531,50 @@ export function PodcastSummarizer() {
                           animate="visible"
                           variants={fadeIn}
                         >
-                          <div className="flex justify-between items-center">
-                            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                              Summary Detail Level
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="transcribe-only-youtube"
+                              checked={formState.transcribeOnly}
+                              onCheckedChange={(checked) =>
+                                updateFormState({ transcribeOnly: !!checked })
+                              }
+                            />
+                            <Label
+                              htmlFor="transcribe-only-youtube"
+                              className="text-sm font-medium text-slate-700 dark:text-slate-300"
+                            >
+                              Transcribe only (no summary)
                             </Label>
-                            <span className="text-xs text-slate-500 dark:text-slate-400">
-                              {formState.detailLevel[0] < 0.33
-                                ? "Concise"
-                                : formState.detailLevel[0] < 0.66
-                                ? "Balanced"
-                                : "Detailed"}
-                            </span>
                           </div>
-                          <Slider
-                            defaultValue={[0.5]}
-                            max={1}
-                            step={0.25}
-                            value={formState.detailLevel}
-                            onValueChange={(value) =>
-                              updateFormState({ detailLevel: value })
-                            }
-                            className="py-2"
-                          />
-                          <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-                            <span>Shorter</span>
-                            <span>Longer</span>
+
+                          <div className={`space-y-4 ${formState.transcribeOnly ? 'opacity-20 pointer-events-none' : ''}`}>
+                            <div className="flex justify-between items-center">
+                              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                Summary Detail Level
+                              </Label>
+                              <span className="text-xs text-slate-500 dark:text-slate-400">
+                                {formState.detailLevel[0] < 0.33
+                                  ? "Concise"
+                                  : formState.detailLevel[0] < 0.66
+                                  ? "Balanced"
+                                  : "Detailed"}
+                              </span>
+                            </div>
+                            <Slider
+                              defaultValue={[0.5]}
+                              max={1}
+                              step={0.25}
+                              value={formState.detailLevel}
+                              onValueChange={(value) =>
+                                updateFormState({ detailLevel: value })
+                              }
+                              className="py-2"
+                              disabled={formState.transcribeOnly}
+                            />
+                            <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                              <span>Shorter</span>
+                              <span>Longer</span>
+                            </div>
                           </div>
                         </motion.div>
                       )}
@@ -667,8 +693,24 @@ export function PodcastSummarizer() {
                             )}
                           </div>
 
+                          <div className="flex items-center space-x-2 mt-4">
+                            <Checkbox
+                              id="transcribe-only-rss"
+                              checked={formState.transcribeOnly}
+                              onCheckedChange={(checked) =>
+                                updateFormState({ transcribeOnly: !!checked })
+                              }
+                            />
+                            <Label
+                              htmlFor="transcribe-only-rss"
+                              className="text-sm font-medium text-slate-700 dark:text-slate-300"
+                            >
+                              Transcribe only (no summary)
+                            </Label>
+                          </div>
+
                           <motion.div
-                            className="mt-6 space-y-4"
+                            className={`mt-6 space-y-4 ${formState.transcribeOnly ? 'opacity-20 pointer-events-none' : ''}`}
                             initial="hidden"
                             animate="visible"
                             variants={fadeIn}
@@ -694,6 +736,7 @@ export function PodcastSummarizer() {
                                 updateFormState({ detailLevel: value })
                               }
                               className="py-2"
+                              disabled={formState.transcribeOnly}
                             />
                             <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
                               <span>Shorter</span>
@@ -743,7 +786,7 @@ export function PodcastSummarizer() {
                           </>
                         ) : (
                           <>
-                            Summarize Podcast
+                            {formState.transcribeOnly ? 'Transcribe Podcast' : 'Summarize Podcast'}
                             <ArrowRight className="ml-2 h-5 w-5" />
                           </>
                         )}
@@ -792,7 +835,7 @@ export function PodcastSummarizer() {
                   >
                     <h3 className="text-xl font-semibold text-slate-900 dark:text-white flex items-center gap-2 font-heading">
                       <BarChart3 className="h-5 w-5 text-corporate-600 dark:text-corporate-400" />
-                      Executive Summary
+                      {summary?.content ? 'Executive Summary' : 'Transcript Only'}
                     </h3>
 
                     <div className="flex gap-2">
@@ -843,9 +886,10 @@ export function PodcastSummarizer() {
                     {summary?.content ? (
                       <MarkdownRenderer content={summary.content} />
                     ) : (
-                      <p className="text-slate-500 dark:text-slate-400 italic">
-                        No summary content available.
-                      </p>
+                      <div className="text-slate-500 dark:text-slate-400 italic text-center py-8">
+                        <p className="mb-2">This podcast was transcribed without summarization.</p>
+                        <p className="text-sm">You can view the full transcript using the "View Transcript" button below.</p>
+                      </div>
                     )}
                   </motion.div>
 

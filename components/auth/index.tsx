@@ -97,7 +97,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
             Powered by{" "}
             <span className="text-corporate-600 dark:text-corporate-400 font-semibold">
-              Very Early
+              very early
             </span>
           </p>
         </motion.div>
@@ -253,7 +253,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             <p className="text-sm text-slate-600 dark:text-slate-400 font-medium">
               © 2025{" "}
               <span className="text-corporate-600 dark:text-corporate-400 font-semibold">
-                Very Early
+                very early
               </span>
               . All rights reserved.
             </p>
